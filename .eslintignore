@@ -1,0 +1,4 @@
+# Files that are part of the base Docker container.
+/server.js
+/webpack.config.js
+/cfg/*.js

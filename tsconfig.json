@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "jsx": "react",
+    "lib": ["dom", "dom.iterable", "es5", "es6"],
+    "module": "esNext",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "paths": {
+      "components/*": [
+        "src/components/*"
+      ],
+      "images/*": [
+        "src/images/*"
+      ],
+      "store/*": [
+        "src/store/*"
+      ]
+    },
+    "resolveJsonModule": true,
+    "strict": true,
+    "target": "esNext"
+  },
+  "include": [
+    "custom.d.ts",
+    "src"
+  ],
+  "exclude": [
+    "bob_emploi/analytics/*"
+  ]
+}
