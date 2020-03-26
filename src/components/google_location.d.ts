@@ -1,35 +1,36 @@
+declare namespace google {
+  interface LocationHistory {
+    timelineObjects: readonly TimelineObject[]
+  }
 
-interface LocationHistory {
-  timelineObjects: readonly TimelineObject[]
-}
+  type TimelineObject = PlaceVisitObject | ActivitySegmentObject
 
-type TimelineObject = PlaceVisitObject | ActivitySegmentObject
+  interface PlaceVisitObject {
+    placeVisit: PlaceVisit
+  }
 
-interface PlaceVisitObject {
-  placeVisit: PlaceVisit
-}
+  interface ActivitySegmentObject {
+    activitySegment: ActivitySegment
+  }
 
-interface ActivitySegmentObject {
-  activitySegment: ActivitySegment
-}
+  interface PlaceVisit {
+    location: Location & {placeId: string}
+    duration: Duration
+  }
 
-interface PlaceVisit {
-  location: Location & {placeId: string}
-  duration: Duration
-}
+  interface ActivitySegment {
+    startLocation: Location
+    endLocation: Location
+  }
 
-interface ActivitySegment {
-  startLocation: Location
-  endLocation: Location
-}
+  interface Location {
+    latitudeE7: number
+    longitudeE7: number
+    placeId?: string
+  }
 
-interface Location {
-  latitudeE7: number
-  longitudeE7: number
-  placeId?: string
-}
-
-interface Duration {
-  endTimestampMs: string
-  startTimestampMs: string
+  interface Duration {
+    endTimestampMs: string
+    startTimestampMs: string
+  }
 }

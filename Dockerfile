@@ -14,11 +14,12 @@ COPY package.json .
 RUN node node_modules/.bin/yarn-lazy-lock && yarn install
 RUN npm list --depth=0; exit 0
 
-COPY src src/
 COPY .eslintrc.json .eslintignore tsconfig.json ./
 
 COPY cfg/html_plugin.sh cfg/
 RUN bash -x cfg/html_plugin.sh
+
+COPY src src/
 
 ARG SKIP_TEST=
 RUN test -n "$SKIP_TEST" && echo "Skipping tests" || (npm run lint & npm run check-types)
