@@ -1,5 +1,8 @@
+import 'core-js/fn/array/flat-map'
 import JSZip from 'jszip'
 import React, {Suspense, useCallback, useEffect, useState} from 'react'
+import DatePicker from 'react-datepicker'
+import 'react-datepicker/dist/react-datepicker.css'
 import {useDropzone} from 'react-dropzone'
 
 import {CancelablePromise, makeCancelable} from 'store/promise'
@@ -7,79 +10,110 @@ import {CancelablePromise, makeCancelable} from 'store/promise'
 import {CircularProgress} from 'components/theme'
 
 
+const GOOGLE_MONTHS = [
+  'JANUARY',
+  'FEBRUARY',
+  'MARCH',
+  'APRIL',
+  'MAY',
+  'JUNE',
+  'JULY',
+  'AUGUST',
+  'SEPTEMBER',
+  'OCTOBER',
+  'NOVEMBER',
+  'DECEMBER',
+]
+
 // TODO(cyrille): Fetch from database at some point.
-const placesWithCovidContacts: {[placeId: string]: readonly Duration[]} = {
+const placesWithCovidContacts: {[placeId: string]: readonly google.Duration[]} = {
   ChIJtxrD5mPq9EcRvotPVFs0CJc: [{
     endTimestampMs: '1583233357000',
     startTimestampMs: '1583225265000',
   }],
 }
 
-const getFortnightAgoTimestampMs = (originDate: Date): string => {
-  const date = new Date(originDate)
-  date.setDate(date.getDate() - 15)
-  return date.getTime().toString()
+
+const getRelevantMonthsRegex = (originDate: Date): RegExp => {
+  const fortnightAgo = new Date(originDate)
+  fortnightAgo.setDate(originDate.getDate() - 15)
+
+  const monthChoice = [fortnightAgo, originDate].
+    map(date => `${date.getFullYear()}_${GOOGLE_MONTHS[date.getMonth()]}`).
+    join('|')
+  return new RegExp(`/(${monthChoice})\\.json$`)
 }
-// TODO(cyrille): Use user-input date, from start of symptoms.
-const fortnightAgo = getFortnightAgoTimestampMs(new Date('2020-03-14'))
+const isPlaceVisit = (timelineObject: google.TimelineObject):
+timelineObject is google.PlaceVisitObject =>
+  !!(timelineObject as google.PlaceVisitObject).placeVisit
 
 
-const isPlaceVisit = (timelineObject: TimelineObject): timelineObject is PlaceVisitObject =>
-  !!(timelineObject as PlaceVisitObject).placeVisit
+const getRelevantData = (originDate: Date, fileContents: readonly string[]):
+readonly google.PlaceVisit[] => {
+  const fortnightAgo = new Date(originDate)
+  fortnightAgo.setDate(originDate.getDate() - 15)
+  const startDate = fortnightAgo.getTime().toString()
+  const endDate = originDate.getTime().toString()
+  const fullHistory = fileContents.flatMap(fileContent =>
+    (JSON.parse(fileContent) as google.LocationHistory).timelineObjects)
+  return fullHistory.flatMap(timelineObject => {
+    if (!isPlaceVisit(timelineObject)) {
+      return []
+    }
+    const {duration: {endTimestampMs, startTimestampMs}} = timelineObject.placeVisit
+    if (endTimestampMs < startDate || startTimestampMs > endDate) {
+      return []
+    }
+    return [timelineObject.placeVisit]
+  })
+}
 
 
-const findAllContacts = (history: LocationHistory): CancelablePromise<number> => makeCancelable(
-  new Promise(resolve => {
-    const contactsFound = history.timelineObjects.
-      filter((timelineObject) => {
-        if (!isPlaceVisit(timelineObject)) {
-          return false
-        }
-        const {duration: {endTimestampMs, startTimestampMs},
-          location: {placeId}} = timelineObject.placeVisit
-        if (endTimestampMs < fortnightAgo) {
-          return false
-        }
-        return (placesWithCovidContacts[placeId] || []).
-          some(({endTimestampMs: contactEnd, startTimestampMs: contactStart}): boolean =>
-            startTimestampMs <= contactEnd && contactStart < endTimestampMs)
-      }).length
-    resolve(contactsFound)
-  }))
+const findAllContacts = (history: readonly google.PlaceVisit[]): CancelablePromise<number> =>
+  makeCancelable(
+    new Promise(resolve => {
+      const contactsFound = history.
+        filter(({duration: {endTimestampMs, startTimestampMs}, location: {placeId}}): boolean =>
+          (placesWithCovidContacts[placeId] || []).
+            some(({endTimestampMs: contactEnd, startTimestampMs: contactStart}): boolean =>
+              startTimestampMs <= contactEnd && contactStart < endTimestampMs)).
+        length
+      resolve(contactsFound)
+    }))
 
 
 
 const MainApp = (): React.ReactElement => {
-  const [locationHistoryJson, setHistoryJson] = useState('')
+  const [locationHistory, setHistoryJson] = useState<readonly google.PlaceVisit[]>([])
   const [isComputing, setComputing] = useState(false)
   const [contacts, setContacts] = useState<undefined|number>(undefined)
+  const [date, setDate] = useState(new Date())
+  const setMyDate = useCallback(date => setDate(date), [])
   const onDrop = useCallback((files: readonly File[]): void => {
     if (!files.length) {
       return
     }
     const newZip = new JSZip()
+    // TODO(cyrille): Recompute if date changes.
     newZip.loadAsync(files[0]).
-      then(zipped => zipped.file(/2020\/2020_MARCH\.json$/)[0].async('text')).
+      then(zipped => Promise.all(
+        zipped.file(getRelevantMonthsRegex(date)).map(file => file.async('text')),
+      )).
+      then(data =>
+        getRelevantData(date, data)).
       then(setHistoryJson)
-  }, [])
+  }, [date])
   const {getRootProps, getInputProps, isDragActive} = useDropzone({onDrop})
   useEffect((): (() => void) => {
-    if (!locationHistoryJson) {
-      return (): void => void 0
-    }
-    let history: LocationHistory
-    try {
-      history = JSON.parse(locationHistoryJson)
-    } catch (error) {
-      setContacts(undefined)
+    if (!locationHistory.length) {
       return (): void => void 0
     }
     setComputing(true)
-    const compute = findAllContacts(history)
+    const compute = findAllContacts(locationHistory)
     compute.promise.then(setContacts)
     compute.promise.then((): void => setComputing(false))
     return compute.cancel
-  }, [locationHistoryJson])
+  }, [locationHistory])
   const textAreaStyle: React.CSSProperties = {
     display: 'block',
     fontSize: 18,
@@ -88,10 +122,19 @@ const MainApp = (): React.ReactElement => {
     padding: 20,
     width: '70%',
   }
+  const shownHistory = locationHistory.length ? JSON.stringify(locationHistory, undefined, 2) : ''
   return <div style={{padding: 20}}>
     <header>
       <h1>Application de traçage des contact pour le dépistage de SARS-COV-2</h1>
     </header>
+    <section>
+      <h2>Indiquez la date de vos premiers symtômes</h2>
+      <p>
+        Cette date nous permettra de nous limiter aux données de localisation des 15 jours
+        précédant cette date.
+      </p>
+      <DatePicker selected={date} onChange={setMyDate} />
+    </section>
     <section>
       <h2>Exportez vos données de géo-localisation</h2>
       <p>
@@ -130,12 +173,11 @@ const MainApp = (): React.ReactElement => {
         }
       </div>
       <textarea
-        style={textAreaStyle} disabled={true} value={locationHistoryJson}
-        placeholder="Vos données de mars apparaitront ici" />
-      {isComputing ? <CircularProgress /> : typeof contacts === 'undefined' ? locationHistoryJson ?
+        value={shownHistory} style={textAreaStyle}
+        placeholder="Vos données des 15 derniers jours apparaitront ici" disabled={true} />
+      {isComputing ? <CircularProgress /> : typeof contacts === 'undefined' ? locationHistory ?
         <p>
-          Une erreur s'est produite, nous n'avons pas réussi à lire vos données.
-          Veuillez recopier le contenu du fichier JSON en veillant bien à tout sélectionner.
+          Une erreur s'est produite, assurez-vous de fournir le bon fichier ZIP.
         </p> : '' : contacts ? <p>
         Vous avez été au moins {contacts} fois dans le même lieu qu'une personne ayant été
         contaminée par le virus SARS-COV-2.
